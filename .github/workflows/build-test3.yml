@@ -1,0 +1,103 @@
+name: OpenTzar TEST3 — Windows x64
+
+on:
+  push:
+    paths:
+      - 'OpenTzar_TEST3_Zrodla_Build.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Pobierz repozytorium
+        uses: actions/checkout@v4
+
+      - name: Weryfikuj i rozpakuj zrodla
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = 'OpenTzar_TEST3_Zrodla_Build.zip'
+          if (!(Test-Path $zip)) { throw "Brakuje $zip. Dodaj archiwum zrodel TEST3 do katalogu glownego repozytorium." }
+          New-Item -ItemType Directory -Path 'game-src' | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath 'game-src'
+          foreach ($required in @('Cargo.toml','Cargo.lock','rust-toolchain.toml','src/main.rs','src/archive.rs','src/first_start.rs','LICENSE')) {
+            if (!(Test-Path ("game-src/" + $required))) { throw "Brak w archiwum zrodel: $required" }
+          }
+          foreach ($forbidden in @('game-src/ReTzar.dat','game-src/Tzar.exe','game-src/tools/tzar.ico')) {
+            if (Test-Path $forbidden) { throw "Niedozwolony plik w paczce zrodel: $forbidden" }
+          }
+          if (Get-ChildItem 'game-src' -File -Recurse | Where-Object { $_.Extension -in @('.wdt','.ddv','.exe') }) {
+            throw "Paczka zrodel zawiera komercyjne lub wykonywalne pliki gry"
+          }
+          Write-Host "Weryfikacja struktury zrodel OK"
+
+      - name: Zainstaluj Rust z rust-toolchain.toml
+        working-directory: game-src
+        shell: pwsh
+        run: rustup show
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: game-src
+
+      - name: Kompiluj OpenTzar.exe (Windows x64)
+        working-directory: game-src
+        shell: pwsh
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo build --locked --release --bin retzar
+
+      - name: Zweryfikuj i zapakuj TEST3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = 'game-src/target/release/retzar.exe'
+          if (!(Test-Path $source)) { throw "Nie powstal retzar.exe" }
+          $folder = 'out/OpenTzar_TEST3_Windows_x64'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item $source (Join-Path $folder 'OpenTzar.exe')
+          Copy-Item 'game-src/LICENSE' (Join-Path $folder 'LICENSE.txt')
+          $cmd = @'
+          @echo off
+          setlocal
+          cd /d "%~dp0"
+          "OpenTzar.exe" --skip-intro --screen Random
+          set "RESULT=%ERRORLEVEL%"
+          if not "%RESULT%"=="0" (
+            echo OpenTzar zakonczyl sie bledem %RESULT%.
+            echo Sprawdz OpenTzar-ostatnia-proba.txt.
+            pause
+          )
+          exit /b %RESULT%
+          '@
+          Set-Content -LiteralPath (Join-Path $folder 'START_SLOWIANIE.cmd') -Value $cmd -Encoding ascii
+          $readme = @'
+          OpenTzar TEST3 — test prywatny dla Windows x64
+          
+          1. Rozpakuj caly folder do osobnego zapisywalnego katalogu.
+          2. Uruchom START_SLOWIANIE.cmd lub bezposrednio OpenTzar.exe.
+          3. Przy pierwszym starcie potwierdz lokalizacje legalnie zainstalowanego Tzara GOG.
+          4. W losowej mapie wybierz Slowian jako czwarta nacje.
+          5. Jesli mapa nie startuje, wyslij OpenTzar-ostatnia-proba.txt.
+          
+          Nie kopiuj do tego folderu Tzar.exe, WDT, ReTzar.dat ani innych danych oryginalnej gry.
+          Ten build jest wersja testowa i nie potwierdza jeszcze poprawnosci startu mapy na GOG.
+          '@
+          Set-Content -LiteralPath (Join-Path $folder 'INSTRUKCJA.txt') -Value $readme -Encoding utf8
+          Get-FileHash (Join-Path $folder 'OpenTzar.exe') -Algorithm SHA256 | Format-List
+          Compress-Archive -LiteralPath $folder -DestinationPath 'out/OpenTzar_TEST3_Windows_x64.zip' -CompressionLevel Optimal
+          if (!(Test-Path 'out/OpenTzar_TEST3_Windows_x64.zip')) { throw "Nie udalo sie utworzyc ZIP" }
+
+      - name: Udostepnij jeden ZIP do testow
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenTzar_TEST3_Win64
+          path: out/OpenTzar_TEST3_Windows_x64.zip
+          if-no-files-found: error
+          retention-days: 30
