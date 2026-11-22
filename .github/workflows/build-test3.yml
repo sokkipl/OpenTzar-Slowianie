@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'OpenTzar_TEST3_Zrodla_Build.zip'
+      - '.github/workflows/build-test3.yml'
   workflow_dispatch:
 
 permissions:
@@ -51,6 +52,10 @@ jobs:
         shell: pwsh
         env:
           CARGO_TERM_COLOR: always
+          # Szybki build testowy: pomijamy kosztowna fat-LTO i ciezka optymalizacje.
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
         run: cargo build --locked --release --bin retzar
 
       - name: Zweryfikuj i zapakuj TEST3
