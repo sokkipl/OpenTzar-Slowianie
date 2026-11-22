@@ -1,0 +1,13 @@
+# Never commit commercial game installations or compiled binaries
+Tzar.exe
+ReTzar.dat
+*.wdt
+*.ddv
+*.dll
+*.exe
+/target/
+/release/
+/out/
+/settings.json
+/OpenTzar-ostatnia-proba.txt
+/OpenTzar-diagnostyka.txt
