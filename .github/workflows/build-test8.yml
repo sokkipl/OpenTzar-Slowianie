@@ -18,12 +18,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: game-src
-      - name: Build Windows
-        working-directory: game-src
-        run: cargo build --release --locked --bin retzar
+          cache-on-failure: true
       - name: Poultry simulation test
         working-directory: game-src
         run: cargo test --release --locked --no-default-features --lib test8_slavic_farm -- --nocapture
+      - name: Build Windows
+        working-directory: game-src
+        run: cargo build --release --locked --bin retzar
       - name: Package TEST8
         run: |
           Copy-Item game-src/target/release/retzar.exe test8/OpenTzar.exe
