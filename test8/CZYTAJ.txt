@@ -1,0 +1,5 @@
+OpenTzar TEST8 – kury i jajka
+Rozpakuj cały ZIP i uruchom START_SLOWIANIE.cmd. Wybierz instalację gry tak jak w TEST7.
+W potyczce wybierz Słowian. Po odblokowaniu hodowli wybierz farmę i „Hoduj kurę”. Koszt wynosi połowę ceny krowy.
+Zaznacz chłopa i kliknij prawym na kurę. Żywa kura znosi jajko co 60 sekund czasu gry. Po dostawie jajka do farmy lub zamku otrzymasz 25 jedzenia. Zaznacz kurę i naciśnij Delete, żeby dostać mięso do zebrania (100).
+Na śniegu obowiązują te same zasady. Jajko ma ciemniejszą dolną krawędź.

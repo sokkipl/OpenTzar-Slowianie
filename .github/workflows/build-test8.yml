@@ -1,0 +1,36 @@
+name: OpenTzar TEST8 Windows
+on:
+  push:
+    branches: [test8-kury]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 110
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+    steps:
+      - uses: actions/checkout@v4
+      - run: Expand-Archive test8/Zrodla.zip game-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: game-src
+      - name: Build Windows
+        working-directory: game-src
+        run: cargo build --release --locked --bin retzar
+      - name: Poultry simulation test
+        working-directory: game-src
+        run: cargo test --release --locked --no-default-features --lib test8_slavic_farm -- --nocapture
+      - name: Package TEST8
+        run: |
+          Copy-Item game-src/target/release/retzar.exe test8/OpenTzar.exe
+          Copy-Item game-src/LICENSE test8/LICENSE.txt
+          Compress-Archive -Path test8/* -DestinationPath OpenTzar_TEST8_Windows_PL.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTzar_TEST8_Windows_PL
+          path: OpenTzar_TEST8_Windows_PL.zip
+          if-no-files-found: error
