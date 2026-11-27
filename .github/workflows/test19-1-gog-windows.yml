@@ -13,7 +13,6 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    if: github.event.repository.private == true
     runs-on: windows-2022
     timeout-minutes: 90
     env:
@@ -106,15 +105,17 @@ jobs:
           }
           Remove-Item runtime-art-v1.ok -Force
           Pop-Location
-          Compress-Archive -Path player19/* -DestinationPath OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip -Force
+          Compress-Archive -Path player19/* -DestinationPath OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip -CompressionLevel Fastest -Force
           Get-FileHash OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip -Algorithm SHA256 | Format-List | Out-File SHA256.txt
       - uses: actions/upload-artifact@v4
         with:
           name: OpenTzar_TEST19_1_GOG_FIX_Windows_x64
+          compression-level: 0
           path: |
             OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip
             SHA256.txt
       - name: Publish private prerelease
+        if: github.event.repository.private == true
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
