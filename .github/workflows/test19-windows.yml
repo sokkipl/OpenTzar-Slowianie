@@ -67,44 +67,7 @@ jobs:
           if ($entries.Count -ne 223) { throw "Unexpected registry size: $($entries.Count)" }
           foreach ($entry in $entries) {
             $rel = $entry.Groups[1].Value
-            if ($rel -notmatch '^(art|src)/[A-Za-z0-9_./-]+,build19/CHECKLISTA_TEST19.html,build19/PODGLAD_IKON_TEST19.png player19/
-          @'
-          @echo off
-          setlocal
-          cd /d "%~dp0"
-          if not exist "OpenTzar.exe" exit /b 1
-          if not exist "runtime-art-v1.ok" (
-            start "" /wait "%~dp0OpenTzar.exe" --ot-check-assets
-            if errorlevel 1 (pause & exit /b 1)
-          )
-          start "" /wait "%~dp0OpenTzar.exe" --root "%~dp0." --skip-intro --screen Random
-          if errorlevel 1 pause
-          '@ | Set-Content player19/START_SLOWIANIE.cmd -Encoding ascii
-          'Rozpakuj ZIP do nowego folderu, uruchom START_SLOWIANIE.cmd i wskaz legalna instalacje Tzara. Nie wymaga Rust ani Studio. Wersja testowa; test rozgrywki nie zostal wykonany.' | Set-Content player19/CZYTAJ.txt -Encoding utf8
-          Push-Location player19
-          $p = Start-Process -FilePath (Join-Path $dest 'OpenTzar.exe') -WorkingDirectory $dest -ArgumentList '--ot-check-assets' -Wait -PassThru
-          if ($p.ExitCode -ne 0 -or !(Test-Path runtime-art-v1.ok)) {
-            if (Test-Path runtime-art-v1.error) { Get-Content runtime-art-v1.error | Write-Host }
-            throw "Asset check failed, exit code $($p.ExitCode)"
-          }
-          Remove-Item runtime-art-v1.ok -Force
-          Pop-Location
-          Compress-Archive -Path player19/* -DestinationPath OpenTzar_TEST19_Windows_x64.zip -Force
-          Get-FileHash OpenTzar_TEST19_Windows_x64.zip -Algorithm SHA256 | Format-List | Out-File SHA256.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: OpenTzar_TEST19_Windows_x64
-          path: |
-            OpenTzar_TEST19_Windows_x64.zip
-            SHA256.txt
-      - name: Publish private prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          $tag = "test19-${{ github.run_number }}-${{ github.run_attempt }}"
-          gh release create $tag OpenTzar_TEST19_Windows_x64.zip OpenTzar_TEST19_CMD_ZRODLA.zip SHA256.txt --target "${{ github.sha }}" --title "OpenTzar TEST19 - Windows x64" --prerelease --notes "Prywatny test. Gotowy EXE, bez Studio i Rust. Wymaga oryginalnego Tzara. Kontrola zasobow automatyczna, rozgrywka niezweryfikowana. Nie upubliczniac przed audytem praw do zasobow."
- -or $rel.Contains('..')) { throw "Unsafe asset path: $rel" }
+            if ($rel -notmatch '^(art|src)/[A-Za-z0-9_./-]+$' -or $rel.Contains('..')) { throw "Unsafe asset path: $rel" }
             $from = Join-Path $source $rel
             $to = Join-Path (Join-Path $dest 'src') $rel
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
@@ -124,8 +87,11 @@ jobs:
           '@ | Set-Content player19/START_SLOWIANIE.cmd -Encoding ascii
           'Rozpakuj ZIP do nowego folderu, uruchom START_SLOWIANIE.cmd i wskaz legalna instalacje Tzara. Nie wymaga Rust ani Studio. Wersja testowa; test rozgrywki nie zostal wykonany.' | Set-Content player19/CZYTAJ.txt -Encoding utf8
           Push-Location player19
-          $p = Start-Process -FilePath '.\OpenTzar.exe' -ArgumentList '--ot-check-assets' -Wait -PassThru
-          if ($p.ExitCode -ne 0 -or !(Test-Path runtime-art-v1.ok)) { throw 'Asset check failed' }
+          $p = Start-Process -FilePath (Join-Path $dest 'OpenTzar.exe') -WorkingDirectory $dest -ArgumentList '--ot-check-assets' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path runtime-art-v1.ok)) {
+            if (Test-Path runtime-art-v1.error) { Get-Content runtime-art-v1.error | Write-Host }
+            throw "Asset check failed, exit code $($p.ExitCode)"
+          }
           Remove-Item runtime-art-v1.ok -Force
           Pop-Location
           Compress-Archive -Path player19/* -DestinationPath OpenTzar_TEST19_Windows_x64.zip -Force
