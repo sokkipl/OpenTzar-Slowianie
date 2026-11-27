@@ -1,0 +1,123 @@
+name: OpenTzar TEST19.1 - GOG FIX - Windows x64
+on:
+  push:
+    paths:
+      - OpenTzar_TEST19_CMD_ZRODLA.zip
+      - fixes/test19.1-gog.patch.gz.b64
+      - .github/workflows/test19-1-gog-windows.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: opentzar-test19-1-gog
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.event.repository.private == true
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: '1'
+      CARGO_PROFILE_RELEASE_STRIP: 'symbols'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract TEST19 and apply exact GOG fix
+        shell: pwsh
+        run: |
+          $baseHash = (Get-FileHash OpenTzar_TEST19_CMD_ZRODLA.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($baseHash -ne '69b01cb5d79ad50bf8c9a3cef0c2cc578ff696963e7e4796ea1d260c0136af97') { throw 'Unexpected base ZIP; refusing to apply GOG fix.' }
+          Expand-Archive -LiteralPath OpenTzar_TEST19_CMD_ZRODLA.zip -DestinationPath build19 -Force
+          python -c "import base64,gzip,pathlib,hashlib; p=gzip.decompress(base64.b64decode(pathlib.Path('fixes/test19.1-gog.patch.gz.b64').read_bytes())); assert hashlib.sha256(p).hexdigest()=='c5876d9e7d4cfd5c9fbb2b4a3dc783e9bf43042e2881f4aaf1e200d3e9595ba6'; pathlib.Path('build19/gog-fix.patch').write_bytes(p)"
+          if ($LASTEXITCODE -ne 0) { throw 'GOG delta integrity check failed' }
+          Push-Location build19
+          git init -q
+          git apply --check --whitespace=nowarn gog-fix.patch
+          if ($LASTEXITCODE -ne 0) { throw 'GOG patch check failed' }
+          git apply --whitespace=nowarn gog-fix.patch
+          if ($LASTEXITCODE -ne 0) { throw 'GOG patch application failed' }
+          Pop-Location
+          if (!(Test-Path build19/src/Cargo.toml)) { throw 'Missing TEST19 source tree' }
+      - name: Install Rust MSVC
+        run: rustup toolchain install 1.99.0-x86_64-pc-windows-msvc --profile minimal
+      - name: Cache Rust dependencies
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build19/src/target
+          key: test19-windows-msvc-1.99-${{ hashFiles('build19/src/Cargo.lock') }}-gog-${{ hashFiles('fixes/test19.1-gog.patch.gz.b64') }}
+          restore-keys: |
+            test19-windows-msvc-1.99-${{ hashFiles('build19/src/Cargo.lock') }}-
+            test19-windows-msvc-1.99-
+      - name: Build Windows executable
+        working-directory: build19/src
+        run: cargo +1.99.0-x86_64-pc-windows-msvc build --locked --release --bin retzar
+      - name: Save Rust cache immediately after build
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build19/src/target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+      - name: Prepare and check player ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path player19 | Out-Null
+          Copy-Item build19/src/target/release/retzar.exe player19/OpenTzar.exe
+          $source = (Resolve-Path build19/src).Path
+          $dest = (Resolve-Path player19).Path
+          $registry = Get-Content -Raw (Join-Path $source 'src/runtime_art.rs')
+          $entries = [regex]::Matches($registry, '\("([^"]+)",\s*include_bytes!')
+          if ($entries.Count -ne 223) { throw "Unexpected registry size: $($entries.Count)" }
+          foreach ($entry in $entries) {
+            $rel = $entry.Groups[1].Value
+            if ($rel -notmatch '^(art|src)/[A-Za-z0-9_./-]+$' -or $rel.Contains('..')) { throw "Unsafe asset path: $rel" }
+            $from = Join-Path $source $rel
+            $to = Join-Path (Join-Path $dest 'src') $rel
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+            Copy-Item -LiteralPath $from -Destination $to -ErrorAction Stop
+          }
+          Write-Host "Copied $($entries.Count) registered resources."
+          Copy-Item build19/LICENSE.txt,build19/CHECKLISTA_TEST19.html,build19/PODGLAD_IKON_TEST19.png player19/
+          @'
+          @echo off
+          setlocal
+          cd /d "%~dp0"
+          if not exist "OpenTzar.exe" exit /b 1
+          start "" /wait "%~dp0OpenTzar.exe" --ot-check-assets
+          if errorlevel 1 (pause & exit /b 1)
+          start "" /wait "%~dp0OpenTzar.exe" --root "%~dp0." --skip-intro --screen Random
+          if errorlevel 1 pause
+          '@ | Set-Content player19/START_SLOWIANIE.cmd -Encoding ascii
+          'TEST19.1 GOG FIX. Rozpakuj ZIP do nowego folderu, uruchom START_SLOWIANIE.cmd i wskaz legalna instalacje Tzara (Packs lub DATA i IMAGES). Nie wymaga Rust ani Studio. Test rozgrywki i angielskiego GOG nie zostal wykonany. W razie problemu przeslij GOG_COMPAT.txt.' | Set-Content player19/CZYTAJ.txt -Encoding utf8
+          Push-Location player19
+          $p = Start-Process -FilePath (Join-Path $dest 'OpenTzar.exe') -WorkingDirectory $dest -ArgumentList '--ot-check-assets' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path runtime-art-v1.ok)) {
+            if (Test-Path runtime-art-v1.error) { Get-Content runtime-art-v1.error | Write-Host }
+            throw "Asset check failed, exit code $($p.ExitCode)"
+          }
+          Remove-Item runtime-art-v1.ok -Force
+          Pop-Location
+          Compress-Archive -Path player19/* -DestinationPath OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip -Force
+          Get-FileHash OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip -Algorithm SHA256 | Format-List | Out-File SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTzar_TEST19_1_GOG_FIX_Windows_x64
+          path: |
+            OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip
+            SHA256.txt
+      - name: Publish private prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "test19.1-gog-${{ github.run_number }}-${{ github.run_attempt }}"
+          gh release create $tag OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip SHA256.txt --target "${{ github.sha }}" --title "OpenTzar TEST19.1 - GOG FIX - Windows x64" --prerelease --notes "Prywatny TEST19.1 z poprawka GOG offline (bez wymogu polskiego images.wdt). Wymaga legalnej instalacji Tzara. Gotowy EXE, bez Studio i Rust. Kontrola zasobow automatyczna; rozgrywka i angielski GOG wymagaja testu. Nie upubliczniac przed audytem praw do zasobow."
