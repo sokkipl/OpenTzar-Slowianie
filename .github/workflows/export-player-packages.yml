@@ -1,0 +1,27 @@
+name: Export existing player packages
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/export-player-packages.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch already compiled packages
+        run: |
+          mkdir -p packages
+          gh release download test20-1-candidate-2-1 --repo sokkipl/OpenTzar-Slowianie --pattern OpenTzar_TEST20_1_CANDIDATE_Windows_x64.zip --dir packages
+          gh release download launcher-channel --repo sokkipl/OpenTzar-Slowianie --pattern OpenTzar_Launcher.zip --dir packages
+          unzip -t packages/OpenTzar_TEST20_1_CANDIDATE_Windows_x64.zip
+          unzip -t packages/OpenTzar_Launcher.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTzar_TEST20_1_i_Launcher
+          path: packages/*
+          compression-level: 0
+          if-no-files-found: error
