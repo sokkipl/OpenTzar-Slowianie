@@ -1,0 +1,92 @@
+name: OpenTzar Launcher and TEST20 source access
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'launcher/**'
+      - '.github/workflows/launcher.yml'
+  workflow_dispatch:
+    inputs:
+      game_tag:
+        description: 'Existing approved game release tag'
+        default: 'test20-windows-1-1'
+      game_version:
+        description: 'Display version'
+        default: 'TEST20'
+permissions:
+  contents: write
+concurrency:
+  group: opentzar-launcher-channel
+  cancel-in-progress: false
+jobs:
+  source-access:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expose existing TEST20 Rust sources for review without changing the game
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin test20-source >/dev/null 2>&1; then exit 0; fi
+          tmp=$(mktemp -d)
+          unzip -q OpenTzar_TEST19_CMD_ZRODLA.zip -d "$tmp"
+          unzip -oq fixes/test20-update.zip -d "$tmp"
+          test -f "$tmp/src/Cargo.toml"
+          mkdir -p review-src
+          cp "$tmp/src/Cargo.toml" "$tmp/src/Cargo.lock" review-src/
+          cp -a "$tmp/src/src" review-src/src
+          if test -f "$tmp/src/build.rs"; then cp "$tmp/src/build.rs" review-src/; fi
+          git switch -c test20-source
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f review-src
+          git commit -m "Expose TEST20 source code for targeted fixes (no gameplay changes)"
+          git push origin HEAD:refs/heads/test20-source
+  launcher:
+    runs-on: windows-2022
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GAME_TAG: ${{ inputs.game_tag || 'test20-windows-1-1' }}
+      GAME_VERSION: ${{ inputs.game_version || 'TEST20' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile standalone Windows launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force launcher-out, game-download, channel-out | Out-Null
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 /out:launcher-out/OpenTzarLauncher.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll launcher/Launcher.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Launcher compilation failed' }
+          Copy-Item launcher/README.txt launcher-out/
+          Compress-Archive -Path launcher-out/* -DestinationPath channel-out/OpenTzar_Launcher.zip
+      - name: Generate verified full and delta update manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release download $env:GAME_TAG --pattern '*Windows_x64.zip' --dir game-download
+          if ($LASTEXITCODE -ne 0) { throw 'Approved game ZIP unavailable' }
+          $files = @(Get-ChildItem game-download -Filter '*.zip')
+          if ($files.Count -ne 1) { throw 'Expected exactly one player ZIP' }
+          $old = Join-Path $PWD 'previous-update.json'
+          gh release download launcher-channel --pattern update.json --output $old 2>$null
+          if ($LASTEXITCODE -ne 0 -and (Test-Path $old)) { Remove-Item $old }
+          python launcher/make_manifest.py --zip $files[0].FullName --tag $env:GAME_TAG --version $env:GAME_VERSION --previous $old --out channel-out
+          if ($LASTEXITCODE -ne 0) { throw 'Manifest generation failed' }
+      - name: Publish launcher and update channel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release view launcher-channel *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create launcher-channel --target $env:GITHUB_SHA --prerelease --title 'OpenTzar Launcher — Windows x64' --notes 'Stały kanał aktualizacji. Rozpakuj ZIP i uruchom OpenTzarLauncher.exe. Wymaga oryginalnego Tzara.'
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          }
+          foreach ($f in Get-ChildItem channel-out -Filter 'delta-*.zip') {
+            gh release upload launcher-channel $f.FullName --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Delta upload failed' }
+          }
+          gh release upload launcher-channel channel-out/OpenTzar_Launcher.zip --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Launcher upload failed' }
+          gh release upload launcher-channel channel-out/update.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Manifest upload failed' }
