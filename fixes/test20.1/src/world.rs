@@ -2723,6 +2723,12 @@ impl Builder<'_> {
         };
         let at = lib.anchor(o, section);
         let mut body = lib.place(index, o, section, at);
+        if let Some(part) = key.0.strip_prefix("slavs:fort:native_wall_") {
+            let native = format!("walls_wood_{part}");
+            let placement = lib.place(index, o, &native, at);
+            body.top_left = placement.top_left;
+            body.bounds = placement.bounds;
+        }
         if [class::BIRD, class::EAGLE].contains(&o.class) {
             return self.flight(o, &key, section, body, at);
         }
@@ -2737,7 +2743,7 @@ impl Builder<'_> {
             lib.first_row(o, section, rows)
         };
         body.image = self.frame(&key, col, row);
-        if fort == Some("stolp") {
+        if fort == Some("stolp") || key.0.starts_with("slavs:fort:native_wall_") {
             let frame = &self.out.images[body.image];
             let dx = frame.width as f32 - self.sheets[&key].image.width as f32;
             let dy = frame.height as f32 - self.sheets[&key].frame_height as f32;
@@ -2766,6 +2772,10 @@ impl Builder<'_> {
         // the same canvas as the body, drawn immediately before its body. On the
         // same frame grid it follows the body's frame.
         let mut shadow_section = format!("{section}_s");
+        if let Some(part) = key.0.strip_prefix("slavs:fort:native_wall_") {
+            let native = format!("walls_wood_{part}_s");
+            if lib.images.get(&native, "image").is_some() { shadow_section = native; }
+        }
         if has_euro && !lib.images.get(&shadow_section, "image").is_some_and(|file| {
             let name = format!("IMAGES/{}", file.replace('\\', "/"));
             let rle = name.strip_suffix(".bmp").or_else(|| name.strip_suffix(".BMP"))
@@ -2797,6 +2807,7 @@ impl Builder<'_> {
         // The new completed Slavic bodies carry their own player-colour cloth.
         // Do not paint the original stone tower/wall banner a second time.
         if fort.is_some() && !site { return Ok(()); }
+        if o.civilization == SLAVS && matches!(o.class_name(), "academy" | "magetower") { return Ok(()); }
         // A horizontal bridge has a second node (0x4f0df0 with 1, as +0x18
         // is set, 0x41be9f): its front railing `bridge_horz1` (0x41be8d),
         // placed by that picture's `object` from the bridge's corner and
@@ -3087,6 +3098,19 @@ impl Builder<'_> {
     /// Load the sheet of an image section for a colour slot. Pictures without
     /// kingdom shades are shared by every slot.
     fn fort_sheet(&mut self, name: &str, slot: Option<usize>) -> Result<SheetKey> {
+        if let Some(part) = name.strip_prefix("wall_").filter(|p| *p != "build") {
+            let key = (format!("slavs:fort:native_wall_{part}"), slot);
+            if self.sheets.contains_key(&key) { return Ok(key); }
+            let section = format!("walls_wood_{part}");
+            // Read native art from the player's own Tzar. Keep the existing
+            // replacement if a particular edition has no corresponding sheet.
+            if let Ok(native_key) = self.sheet(&section, slot) {
+                let s = &self.sheets[&native_key];
+                let copy = SpriteSheet {columns:s.columns, rows:s.rows, frame_height:s.frame_height, image:s.image.clone()};
+                self.sheets.insert(key.clone(),copy);
+                return Ok(key);
+            }
+        }
         let key = (format!("slavs:fort:{name}"), slot);
         if !self.sheets.contains_key(&key) {
             let sheet = crate::slavic_art::fortification_picture(name, self.assets, slot)?;
@@ -3223,6 +3247,9 @@ impl Builder<'_> {
         let id = self.out.images.len();
         let mut frame = self.sheets[key].frame(col, row).unwrap();
         let path = key.0.to_ascii_lowercase();
+        if path.starts_with("slavs:fort:native_wall_") {
+            frame = crate::slavic_art::palisade(&frame, path.ends_with("_dest"));
+        }
         if path == "slavs:fort:stolp" {
             frame = frame.nearest((frame.width * 118 + 50) / 100, (frame.height * 115 + 50) / 100);
         }
