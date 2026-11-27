@@ -1,0 +1,42 @@
+name: Publish existing TEST19.1 GOG FIX
+on:
+  push:
+    paths:
+      - .github/workflows/publish-test19-1.yml
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve existing successful Windows build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 46057036654 --repo "$GITHUB_REPOSITORY" --name OpenTzar_TEST19_1_GOG_FIX_Windows_x64 --dir dist
+          python - <<'PY'
+          import hashlib, pathlib, re, zipfile
+          p = pathlib.Path('dist/OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip')
+          assert p.is_file()
+          text = pathlib.Path('dist/SHA256.txt').read_bytes()
+          if text.startswith((b'\xff\xfe',b'\xfe\xff')):
+              s=text.decode('utf-16')
+          else:
+              s=text.decode('utf-8-sig')
+          digest=hashlib.sha256(p.read_bytes()).hexdigest()
+          assert digest.upper() in s.upper(), 'SHA256 mismatch'
+          with zipfile.ZipFile(p) as z:
+              names=z.namelist()
+              assert 'OpenTzar.exe' in names and 'START_SLOWIANIE.cmd' in names
+              assert not any(n.lower().endswith(('.wdt','.wcm','.wmp')) or n.lower().rsplit('/',1)[-1] == 'tzar.exe' for n in names), 'Unexpected original-game archive or executable'
+              assert z.testzip() is None
+          PY
+      - name: Publish downloadable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create test19.1-gog-fix --repo "$GITHUB_REPOSITORY" --target 48ff735f05af02d1115d602b800e3b64eae3cb0f --title "OpenTzar TEST19.1 - GOG FIX - Windows x64" --prerelease --notes "Test build. Requires an original Tzar installation. Windows EXE and asset check passed; gameplay and English GOG compatibility still require testing." dist/OpenTzar_TEST19_1_GOG_FIX_Windows_x64.zip dist/SHA256.txt
