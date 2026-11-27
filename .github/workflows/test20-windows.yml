@@ -1,0 +1,57 @@
+name: OpenTzar TEST20 Windows x64
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/test20-windows.yml
+      - fixes/test20-update.zip
+      - scripts/package_test20.py
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: '1'
+      CARGO_PROFILE_RELEASE_STRIP: 'symbols'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare source
+        shell: pwsh
+        run: |
+          if ((Get-FileHash OpenTzar_TEST19_CMD_ZRODLA.zip).Hash -ne '69B01CB5D79AD50BF8C9A3CEF0C2CC578FF696963E7E4796EA1D260C0136AF97') { throw 'Unexpected base archive' }
+          Expand-Archive OpenTzar_TEST19_CMD_ZRODLA.zip build19
+          Expand-Archive fixes/test20-update.zip build19 -Force
+          rustup toolchain install 1.99.0-x86_64-pc-windows-msvc --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build19/src/target
+          key: test20-msvc-1.99-${{ hashFiles('build19/src/Cargo.lock','fixes/test20-update.zip') }}
+          restore-keys: |
+            test19-windows-msvc-1.99-${{ hashFiles('build19/src/Cargo.lock') }}-
+      - name: Compile game
+        working-directory: build19/src
+        run: cargo +1.99.0-x86_64-pc-windows-msvc build --locked --release --bin retzar
+      - name: Verify player package on Windows
+        shell: pwsh
+        run: |
+          python scripts/package_test20.py build19/src build19/src/target/release/retzar.exe player
+          if ($LASTEXITCODE) { throw 'Packaging failed' }
+          $test = Start-Process -FilePath (Resolve-Path player/OpenTzar.exe) -WorkingDirectory (Resolve-Path player) -ArgumentList '--ot-check-assets' -PassThru -Wait
+          if ($test.ExitCode -ne 0 -or !(Test-Path player/runtime-art-v1.ok)) { throw "Asset check failed: $($test.ExitCode)" }
+          Remove-Item player/runtime-art-v1.ok
+          Compress-Archive -Path player/* -DestinationPath OpenTzar_TEST20_CMD_Windows_x64.zip -CompressionLevel Optimal
+      - name: Publish player ZIP
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "test20-windows-$env:GITHUB_RUN_NUMBER-$env:GITHUB_RUN_ATTEMPT"
+          gh release create $tag OpenTzar_TEST20_CMD_Windows_x64.zip --target $env:GITHUB_SHA --prerelease --title 'OpenTzar TEST20 — Windows x64' --notes 'Rozpakuj ZIP i uruchom START_SLOWIANIE.cmd. Wymaga oryginalnej instalacji Tzara. Animacje 12 jednostek, kolejka rekrutacji, panel badań, czcionki i przywołanie Leszego.'
